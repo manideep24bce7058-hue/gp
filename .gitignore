@@ -1,0 +1,6 @@
+chrome_data/
+__pycache__/
+*.db
+*.log
+test_links.txt
+.env

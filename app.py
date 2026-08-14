@@ -1,0 +1,29 @@
+import asyncio
+import logging
+
+from indexer import GooglePhotosIndexer
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="[%(asctime)s] %(levelname)s - %(message)s",
+    datefmt="%H:%M:%S"
+)
+
+async def main():
+    # Changed from /share/ to /album/ and removed the key parameter
+    url = "https://photos.google.com/share/AF1QipNHZAe_oKeDxlYocaoadDtAP6tzqvmol458prtooDWei6NH4BLMy5HIAhEIoKRDqQ?key=eXJPTE1OTlFBV0Eyc3E4RjNPRk0xenZkVzlZaVd3"
+    print(f"\nIndexing Album: {url}")
+    
+    indexer = GooglePhotosIndexer()
+    try:
+        result = await indexer.index(url)
+        print("\nSuccess!")
+        print(f"Album ID: {result.album.id}")
+        print(f"Title:    {result.album.title}")
+        print(f"Media:    {result.media_count} items stored")
+        print(f"Time:     {result.elapsed_seconds:.2f}s")
+    except Exception as e:
+        print(f"\nError: {e}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
