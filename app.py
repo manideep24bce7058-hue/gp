@@ -11,7 +11,7 @@ logging.basicConfig(
 
 async def main():
     # Changed from /share/ to /album/ and removed the key parameter
-    url = "https://photos.google.com/share/AF1QipNHZAe_oKeDxlYocaoadDtAP6tzqvmol458prtooDWei6NH4BLMy5HIAhEIoKRDqQ?key=eXJPTE1OTlFBV0Eyc3E4RjNPRk0xenZkVzlZaVd3"
+    url = "https://photos.google.com/share/AF1QipPT0HmYT74nDyd-imxk07lN9biwEHJFmsMzka8x1nVosuFXO8LIRiXrydAWpzNA-w?key=ZFJnZU5Dck5hVEtZdEFQd3hoSlBmNk9fR0M2ZFJ3"
     print(f"\nIndexing Album: {url}")
     
     indexer = GooglePhotosIndexer()

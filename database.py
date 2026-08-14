@@ -6,7 +6,7 @@ from typing import Optional, Any
 from sqlalchemy import BigInteger, DateTime, Integer, String, create_engine, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
-from config import SQLALCHEMY_DATABASE_URL
+from config import LOCAL_DATABASE_URL, CLOUD_DATABASE_URL
 from models import Album, Media, Owner
 
 
@@ -52,11 +52,18 @@ class MediaRecord(Base):
 
 class Database:
     def __init__(self) -> None:
-        self.engine = create_engine(SQLALCHEMY_DATABASE_URL)
-        self.Session = sessionmaker(self.engine, expire_on_commit=False)
+        # Initialize Local Engine
+        self.local_engine = create_engine(LOCAL_DATABASE_URL)
+        self.LocalSession = sessionmaker(self.local_engine, expire_on_commit=False)
+
+        # Initialize Cloud Engine
+        self.cloud_engine = create_engine(CLOUD_DATABASE_URL)
+        self.CloudSession = sessionmaker(self.cloud_engine, expire_on_commit=False)
 
     def create(self) -> None:
-        Base.metadata.create_all(self.engine)
+        # Create tables in both databases
+        Base.metadata.create_all(self.local_engine)
+        Base.metadata.create_all(self.cloud_engine)
 
     @staticmethod
     def _extract_owner(record: AlbumRecord | MediaRecord) -> Optional[Owner]:
@@ -135,7 +142,17 @@ class Database:
         cls._apply_owner(record, media.owner)
 
     def save_album(self, album: Album) -> None:
-        with self.Session() as db:
+        # Write to Local
+        with self.LocalSession() as db:
+            record = db.get(AlbumRecord, album.id)
+            if record is None:
+                record = AlbumRecord(id=album.id)
+                db.add(record)
+            self._update_album_record(record, album)
+            db.commit()
+
+        # Write to Cloud
+        with self.CloudSession() as db:
             record = db.get(AlbumRecord, album.id)
             if record is None:
                 record = AlbumRecord(id=album.id)
@@ -144,19 +161,31 @@ class Database:
             db.commit()
 
     def get_album(self, album_id: str) -> Optional[Album]:
-        with self.Session() as db:
+        # Read from Local only
+        with self.LocalSession() as db:
             record = db.get(AlbumRecord, album_id)
             if record is None:
                 return None
             return self._to_album_model(record)
 
     def all_albums(self) -> list[Album]:
-        with self.Session() as db:
+        # Read from Local only
+        with self.LocalSession() as db:
             records = db.scalars(select(AlbumRecord)).all()
             return [self._to_album_model(r) for r in records]
 
     def save(self, media: Media) -> None:
-        with self.Session() as db:
+        # Write to Local
+        with self.LocalSession() as db:
+            record = db.get(MediaRecord, media.media_id)
+            if record is None:
+                record = MediaRecord(media_id=media.media_id)
+                db.add(record)
+            self._update_media_record(record, media)
+            db.commit()
+
+        # Write to Cloud
+        with self.CloudSession() as db:
             record = db.get(MediaRecord, media.media_id)
             if record is None:
                 record = MediaRecord(media_id=media.media_id)
@@ -170,7 +199,8 @@ class Database:
 
         media_ids = [m.media_id for m in media_list]
 
-        with self.Session() as db:
+        # Write to Local
+        with self.LocalSession() as db:
             stmt = select(MediaRecord).where(MediaRecord.media_id.in_(media_ids))
             existing_records = {r.media_id: r for r in db.scalars(stmt).all()}
 
@@ -180,11 +210,34 @@ class Database:
                     record = MediaRecord(media_id=media.media_id)
                     db.add(record)
                 self._update_media_record(record, media)
+            db.commit()
 
+        # Write to Cloud
+        with self.CloudSession() as db:
+            stmt = select(MediaRecord).where(MediaRecord.media_id.in_(media_ids))
+            existing_records = {r.media_id: r for r in db.scalars(stmt).all()}
+
+            for media in media_list:
+                record = existing_records.get(media.media_id)
+                if record is None:
+                    record = MediaRecord(media_id=media.media_id)
+                    db.add(record)
+                self._update_media_record(record, media)
             db.commit()
             
     def update_metadata(self, media_id: str, metadata: dict[str, Any]) -> None:
-        with self.Session() as db:
+        # Write to Local
+        with self.LocalSession() as db:
+            record = db.get(MediaRecord, media_id)
+            if record:
+                if "filename" in metadata:
+                    record.filename = metadata["filename"]
+                if "file_size_bytes" in metadata:
+                    record.file_size_bytes = metadata["file_size_bytes"]
+                db.commit()
+
+        # Write to Cloud
+        with self.CloudSession() as db:
             record = db.get(MediaRecord, media_id)
             if record:
                 if "filename" in metadata:
@@ -194,13 +247,15 @@ class Database:
                 db.commit()
 
     def get(self, media_id: str) -> Optional[Media]:
-        with self.Session() as db:
+        # Read from Local only
+        with self.LocalSession() as db:
             record = db.get(MediaRecord, media_id)
             if record is None:
                 return None
             return self._to_media_model(record)
 
     def all(self) -> list[Media]:
-        with self.Session() as db:
+        # Read from Local only
+        with self.LocalSession() as db:
             records = db.scalars(select(MediaRecord)).all()
             return [self._to_media_model(r) for r in records]
