@@ -123,9 +123,13 @@ class GooglePhotosBrowser:
 
         except protocol.ProtocolError as e:
             logger.debug("Failed to decode batchexecute: %s", e)
-        except Exception:
-            logger.exception("Unexpected error extracting RPCs")
-
+        except Exception as e:
+            # Catch the Playwright TargetClosedError when browser shuts down
+            if "TargetClosedError" in str(type(e)) or "Target page, context or browser has been closed" in str(e):
+                pass
+            else:
+                logger.exception("Unexpected error extracting RPCs")
+                
     async def _poll_ssr_payloads(self) -> None:
         while True:
             try:
