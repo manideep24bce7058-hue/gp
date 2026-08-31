@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="referrer" content="no-referrer">
+    <title>Google Photos - Local Media Search</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #1e1e1e; color: #e0e0e0; margin: 0; padding: 20px; }
+        .container { max-width: 900px; margin: 0 auto; }
+        h1 { color: #64b5f6; }
+        .search-box { display: flex; gap: 10px; margin-bottom: 30px; }
+        input[type="text"] { flex: 1; padding: 14px; border: 1px solid #444; background-color: #2d2d2d; color: #fff; border-radius: 6px; font-size: 16px; }
+        input[type="text"]:focus { outline: none; border-color: #64b5f6; }
+        .card { background: #2d2d2d; padding: 20px; margin-bottom: 25px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.2); }
+        .card h3 { margin-top: 0; word-break: break-all; font-size: 18px; color: #fff; margin-bottom: 5px;}
+        .meta { color: #aaa; font-size: 14px; margin-bottom: 15px; }
+        video { width: 100%; border-radius: 8px; background: #000; outline: none; margin-bottom: 15px; }
+        
+        .actions { margin-bottom: 15px; }
+        .actions a { display: inline-block; margin-right: 10px; text-decoration: none; font-size: 14px; font-weight: bold; padding: 8px 12px; border-radius: 5px; transition: all 0.2s;}
+        
+        /* Distinct VLC Button Styling */
+        .btn-vlc { background-color: #ff8800; color: #fff; border: 1px solid #ff8800; }
+        .btn-vlc:hover { background-color: #e67a00; border-color: #e67a00; color: #fff; }
+        
+        /* Standard Buttons */
+        .btn-std { color: #64b5f6; border: 1px solid #64b5f6; }
+        .btn-std:hover { background-color: #64b5f6; color: #1e1e1e; }
+        
+        .loading { text-align: center; color: #aaa; font-style: italic; margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Local Media Search</h1>
+        
+        <div class="search-box">
+            <input type="text" id="searchInput" autocomplete="off" placeholder="Search for a movie or filename...">
+        </div>
+
+        <div id="videoList"></div>
+    </div>
+
+    <script>
+        const searchInput = document.getElementById('searchInput');
+        const videoList = document.getElementById('videoList');
+        let debounceTimer;
+
+        const videoObserver = new IntersectionObserver((entries, observer) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const video = entry.target;
+                    video.poster = video.dataset.poster;
+                    
+                    const sources = video.querySelectorAll('source');
+                    sources.forEach(source => {
+                        source.src = source.dataset.src;
+                    });
+                    
+                    video.load();
+                    observer.unobserve(video);
+                }
+            });
+        }, { rootMargin: '0px 0px 400px 0px' });
+
+        async function fetchResults(query = '') {
+            videoList.innerHTML = '<div class="loading">Searching...</div>';
+            
+            try {
+                const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+                const data = await response.json();
+                
+                videoList.innerHTML = '';
+                
+                if (data.length === 0) {
+                    videoList.innerHTML = '<div class="loading">No results found.</div>';
+                    return;
+                }
+
+                data.forEach(item => {
+                    const card = document.createElement('div');
+                    card.className = 'card';
+                    card.innerHTML = `
+                        <h3>${item.filename}</h3>
+                        <div class="meta">
+                            <strong>Size:</strong> ${item.formatted_size}
+                        </div>
+                        
+                        <div class="actions">
+                            <a href="/vlc/${item.media_id}.m3u" class="btn-vlc">▶ Play natively in VLC</a>
+                        </div>
+                        
+                        <video controls preload="none" data-poster="${item.hi_res_cover}">
+                            <source data-src="${item.web_stream_url}" type="video/mp4">
+                            <source data-src="${item.stream_url}" type="video/x-matroska">
+                            Your browser does not support the video tag.
+                        </video>
+                        
+                        <div class="actions">
+                            <a href="${item.web_stream_url}" target="_blank" class="btn-std">Web Stream (=m37)</a>
+                            <a href="${item.stream_url}" target="_blank" class="btn-std">Raw MKV Link (=dv)</a>
+                            <a href="${item.download_url}" download class="btn-std">Download File (=d)</a>
+                        </div>
+                    `;
+                    videoList.appendChild(card);
+
+                    const videoElement = card.querySelector('video');
+                    videoObserver.observe(videoElement);
+                    attachVideoControls(videoElement);
+                });
+            } catch (error) {
+                videoList.innerHTML = '<div class="loading">Error loading results from backend.</div>';
+            }
+        }
+
+        function attachVideoControls(video) {
+            video.addEventListener('dblclick', () => {
+                if (!document.fullscreenElement) {
+                    video.requestFullscreen().catch(err => console.error(err));
+                } else {
+                    document.exitFullscreen();
+                }
+            });
+
+            video.addEventListener('keydown', function(e) {
+                const keys = ['ArrowRight', 'ArrowLeft', 'ArrowUp', 'ArrowDown', ' ', 'Space'];
+                if (keys.includes(e.key)) e.preventDefault();
+
+                switch(e.key) {
+                    case 'ArrowRight':
+                        this.currentTime += 10;
+                        break;
+                    case 'ArrowLeft':
+                        this.currentTime -= 10;
+                        break;
+                    case 'ArrowUp':
+                        this.volume = Math.min(1, this.volume + 0.1);
+                        break;
+                    case 'ArrowDown':
+                        this.volume = Math.max(0, this.volume - 0.1);
+                        break;
+                    case ' ':
+                    case 'Space':
+                        this.paused ? this.play() : this.pause();
+                        break;
+                }
+            });
+        }
+
+        searchInput.addEventListener('input', (e) => {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+                fetchResults(e.target.value);
+            }, 300);
+        });
+
+        fetchResults();
+    </script>
+</body>
+</html>
