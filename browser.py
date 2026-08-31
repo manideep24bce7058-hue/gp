@@ -118,8 +118,12 @@ class GooglePhotosBrowser:
             if not decoded_rpcs:
                 return
 
+            # Explicitly allow only the required RPC IDs
+            allowed_rpcs = {"snAcKc", "frGlJf", "fDcn4b"}
+
             for rpc_id, payload in decoded_rpcs:
-                await self._store_payload(rpc_id, payload, text, source="NETWORK")
+                if rpc_id in allowed_rpcs:
+                    await self._store_payload(rpc_id, payload, text, source="NETWORK")
 
         except protocol.ProtocolError as e:
             logger.debug("Failed to decode batchexecute: %s", e)
@@ -128,8 +132,7 @@ class GooglePhotosBrowser:
             if "TargetClosedError" in str(type(e)) or "Target page, context or browser has been closed" in str(e):
                 pass
             else:
-                logger.exception("Unexpected error extracting RPCs")
-                
+                logger.exception("Unexpected error extracting RPCs")        
     async def _poll_ssr_payloads(self) -> None:
         while True:
             try:
