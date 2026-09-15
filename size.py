@@ -52,10 +52,10 @@ if __name__ == "__main__":
     database_file = "google_photos.db" 
     calculate_album_sizes(database_file)
 '''
-last calculated on: 2026-09-13
+last calculated on: 2026-09-15
 Album Name                     | Files  | Size (MB)    | Size (GB)    | Size (TB) 
 --------------------------------------------------------------------------------
-Movies                         | 295    | 6173759.65   | 6029.06      | 5.89       TB
+Movies                         | 297    | 6220563.32   | 6074.77      | 5.93       TB
 MCU                            | 48     | 2324473.51   | 2269.99      | 2.22       TB
 
 '''

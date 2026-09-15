@@ -259,3 +259,36 @@ class Database:
         with self.LocalSession() as db:
             records = db.scalars(select(MediaRecord)).all()
             return [self._to_media_model(r) for r in records]
+
+    def update_metadata_batch(self, updates: list[dict[str, Any]]) -> None:
+        if not updates:
+            return
+            
+        update_map = {u["media_id"]: u for u in updates}
+        media_ids = list(update_map.keys())
+
+        # Write to Local
+        with self.LocalSession() as db:
+            stmt = select(MediaRecord).where(MediaRecord.media_id.in_(media_ids))
+            records = db.scalars(stmt).all()
+            for record in records:
+                meta = update_map.get(record.media_id)
+                if meta:
+                    if "filename" in meta:
+                        record.filename = meta["filename"]
+                    if "file_size_bytes" in meta:
+                        record.file_size_bytes = meta["file_size_bytes"]
+            db.commit()
+
+        # Write to Cloud
+        with self.CloudSession() as db:
+            stmt = select(MediaRecord).where(MediaRecord.media_id.in_(media_ids))
+            records = db.scalars(stmt).all()
+            for record in records:
+                meta = update_map.get(record.media_id)
+                if meta:
+                    if "filename" in meta:
+                        record.filename = meta["filename"]
+                    if "file_size_bytes" in meta:
+                        record.file_size_bytes = meta["file_size_bytes"]
+            db.commit()

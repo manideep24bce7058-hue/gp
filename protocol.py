@@ -50,6 +50,14 @@ def decode_wrbs(text: str) -> list[tuple[str, Any]]:
 
     return results
 
+def build_frGlJf_payload(album_id: str, cursor: str, share_key: str | None = None) -> str:
+    """
+    Builds a batchexecute f.req payload for a frGlJf pagination request.
+    """
+    inner_arr = [album_id, cursor, None, share_key]
+    inner_str = json.dumps(inner_arr, separators=(',', ':'))
+    rpc = ["frGlJf", inner_str, None, "1"]
+    return json.dumps([[rpc]], separators=(',', ':'))
 
 def _extract_envelopes(data: Any, results: list[tuple[str, Any]]) -> None:
     """
