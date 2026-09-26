@@ -34,6 +34,7 @@ class Media:
     capture_timestamp_ms: Optional[int] = None
     added_timestamp_ms: Optional[int] = None
     album_id: Optional[str] = None
+    album_name: Optional[str] = None  # <-- Added
     owner: Optional[Owner] = None
     page_cursor: Optional[str] = None
     filename: Optional[str] = None

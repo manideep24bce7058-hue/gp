@@ -1,11 +1,11 @@
 import asyncio
 import logging
 import sys
-import json
-import os
-from datetime import datetime
+import sqlite3
+import pandas as pd
+from openpyxl.styles import Font
 from indexer import GooglePhotosIndexer
-from database import Database, select, MediaRecord
+from database import Database
 
 logging.basicConfig(
     level=logging.INFO,
@@ -14,7 +14,6 @@ logging.basicConfig(
 )
 
 ALBUM_FILE = "album_links.txt"
-SIZE_FILE = "size.json"
 
 def load_all_albums(file_path: str) -> dict[str, str]:
     albums = {}
@@ -28,43 +27,74 @@ def load_all_albums(file_path: str) -> dict[str, str]:
         print(f"Error: {file_path} not found.")
     return albums
 
-def format_size(bytes_size: int) -> str:
-    if not bytes_size:
-        return "0 MB"
-    size = bytes_size / (1024 * 1024)
-    if size < 1024:
-        return f"{size:.2f} MB"
-    elif size < 1024 * 1024:
-        return f"{size / 1024:.2f} GB"
-    else:
-        return f"{size / (1024 * 1024):.2f} TB"
-
-def update_size_file(album_name: str, total_bytes: int) -> None:
-    data = {}
-    if os.path.exists(SIZE_FILE):
-        with open(SIZE_FILE, "r", encoding="utf-8") as f:
-            try:
-                data = json.load(f)
-            except json.JSONDecodeError:
-                pass
-                
-    size_mb = total_bytes / (1024 ** 2)
-    size_gb = total_bytes / (1024 ** 3)
-    size_tb = total_bytes / (1024 ** 4)
+def export_to_excel() -> None:
+    db_name = "google_photos.db"
+    excel_name = "google_photos_export.xlsx"
     
-    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    data[album_name] = {
-        "MB": round(size_mb, 2),
-        "GB": round(size_gb, 2),
-        "TB": round(size_tb, 2),
-        "last_updated": current_time
-    }
-    
-    with open(SIZE_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4)
+    print(f"\n--- Generating Excel Export ---")
+    try:
+        conn = sqlite3.connect(db_name)
         
-    print(f"Updated {SIZE_FILE}: {album_name} -> {data[album_name]['GB']} GB (Updated: {current_time})")
+        with pd.ExcelWriter(excel_name, engine='openpyxl') as writer:
+            # 1. Output the raw DataFrames to sheets
+            size_df = pd.read_sql_query("SELECT * FROM vw_album_storage", conn)
+            size_df.to_excel(writer, sheet_name='Storage Size', index=False)
+            
+            albums_df = pd.read_sql_query("SELECT * FROM albums", conn)
+            albums_df.to_excel(writer, sheet_name='Albums', index=False)
+            
+            media_df = pd.read_sql_query("SELECT * FROM vw_media_formatted", conn)
+            media_df.to_excel(writer, sheet_name='Media', index=False)
+            
+            workbook = writer.book
+            
+            # 2. Fix Column Widths
+            for sheet_name in workbook.sheetnames:
+                worksheet = workbook[sheet_name]
+                for col in worksheet.columns:
+                    max_length = 0
+                    column = col[0].column_letter
+                    for cell in col:
+                        try:
+                            val_str = str(cell.value)
+                            if len(val_str) > max_length:
+                                max_length = len(val_str)
+                        except:
+                            pass
+                    worksheet.column_dimensions[column].width = min((max_length + 2), 50)
+            
+            # 3. Apply Native Hyperlinks
+            media_sheet = workbook['Media']
+            link_col_idx = None
+            
+            for idx, cell in enumerate(media_sheet[1], 1):
+                if cell.value == 'Share Link':
+                    link_col_idx = idx
+                    break
+            
+            if link_col_idx:
+                link_font = Font(color="0563C1", underline="single")
+                for row in range(2, media_sheet.max_row + 1):
+                    cell = media_sheet.cell(row=row, column=link_col_idx)
+                    url = cell.value
+                    
+                    if url and isinstance(url, str) and url.startswith("http"):
+                        cell.hyperlink = url
+                        cell.value = "Open in Photos"
+                        cell.font = link_font
+                    else:
+                        cell.value = "" 
+            
+        print(f"Success! Export saved to {excel_name}")
+        
+    except PermissionError:
+        print(f"\nERROR: The file '{excel_name}' is open. Close it and run export again.")
+    except Exception as e:
+        print(f"\nExcel export failed: {e}")
+    finally:
+        if 'conn' in locals():
+            conn.close()
+
 async def process_album(album_name: str, url: str, db: Database) -> None:
     print(f"\n--- Indexing Album: {album_name} ---")
     print(f"URL: {url}")
@@ -78,14 +108,6 @@ async def process_album(album_name: str, url: str, db: Database) -> None:
         print(f"Media:    {result.media_count} items stored")
         print(f"Time:     {result.elapsed_seconds:.2f}s")
         
-        # Calculate total size from database records
-        with db.LocalSession() as session:
-            stmt = select(MediaRecord).where(MediaRecord.album_id == result.album.id)
-            records = session.scalars(stmt).all()
-            total_bytes = sum(r.file_size_bytes or 0 for r in records)
-            
-        update_size_file(album_name, total_bytes)
-        
     except Exception as e:
         print(f"\nError processing {album_name}: {e}")
 
@@ -97,7 +119,6 @@ async def main() -> None:
     db = Database()
     targets = {}
 
-    # Option C: Positional CLI Argument Parsing
     if len(sys.argv) > 1:
         target_name = sys.argv[1]
         if target_name in albums:
@@ -111,6 +132,8 @@ async def main() -> None:
 
     for name, url in targets.items():
         await process_album(name, url, db)
+        
+    export_to_excel()
 
 if __name__ == "__main__":
     asyncio.run(main())

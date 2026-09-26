@@ -46,7 +46,6 @@ class GooglePhotosBrowser:
         logger.info("Launching Playwright Chromium (Persistent Context)...")
         self._playwright = await async_playwright().start()
         
-        # Use a persistent context to save login cookies and session data
         self._context = await self._playwright.chromium.launch_persistent_context(
             user_data_dir=self.user_data_dir,
             headless=self.headless,
@@ -54,7 +53,6 @@ class GooglePhotosBrowser:
             locale="en-US",
         )
         
-        # Persistent contexts automatically come with one page
         self._page = self._context.pages[0] if self._context.pages else await self._context.new_page()
 
         logger.info("[JS BRIDGE] Injecting AF_initDataCallback interceptor...")
@@ -113,13 +111,19 @@ class GooglePhotosBrowser:
             return
 
         try:
+            # SILENTLY DISCARD DEAD REQUESTS CAUGHT DURING PAGE RESETS
             text = await response.text()
+        except Exception as e:
+            if "No resource with given identifier found" in str(e) or "Target closed" in str(e) or "has been closed" in str(e):
+                return
+            raise
+
+        try:
             decoded_rpcs = protocol.decode_wrbs(text)
             if not decoded_rpcs:
                 return
 
-            # Explicitly allow only the required RPC IDs
-            allowed_rpcs = {"snAcKc", "frGlJf", "fDcn4b"}
+            allowed_rpcs = {"snAcKc", "frGlJf", "fDcn4b", "wQ6iqd", "yQelMe"}
 
             for rpc_id, payload in decoded_rpcs:
                 if rpc_id in allowed_rpcs:
@@ -128,11 +132,8 @@ class GooglePhotosBrowser:
         except protocol.ProtocolError as e:
             logger.debug("Failed to decode batchexecute: %s", e)
         except Exception as e:
-            # Catch the Playwright TargetClosedError when browser shuts down
-            if "TargetClosedError" in str(type(e)) or "Target page, context or browser has been closed" in str(e):
-                pass
-            else:
-                logger.exception("Unexpected error extracting RPCs")        
+            logger.exception("Unexpected error extracting RPCs")        
+
     async def _poll_ssr_payloads(self) -> None:
         while True:
             try:

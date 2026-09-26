@@ -12,11 +12,6 @@ class ProtocolError(Exception):
 
 
 def decode_wrbs(text: str) -> list[tuple[str, Any]]:
-    """
-    Strips the XSSI prefix from Google batchexecute responses
-    and robustly decodes the nested JSON envelopes using raw_decode,
-    ignoring arbitrary chunk length prefixes and newline normalization issues.
-    """
     prefix = ")]}'\n"
     if text.startswith(prefix):
         text = text[len(prefix):]
@@ -26,7 +21,6 @@ def decode_wrbs(text: str) -> list[tuple[str, Any]]:
     idx = 0
 
     while idx < len(text):
-        # Find the next possible start of a JSON array or object
         brace_idx = text.find('[', idx)
         curly_idx = text.find('{', idx)
 
@@ -40,29 +34,28 @@ def decode_wrbs(text: str) -> list[tuple[str, Any]]:
             start_idx = min(brace_idx, curly_idx)
 
         try:
-            # raw_decode extracts exactly one valid JSON object and returns the end index
             data, end_idx = decoder.raw_decode(text, start_idx)
             _extract_envelopes(data, results)
             idx = end_idx
         except json.JSONDecodeError:
-            # If parsing fails, advance by 1 character to search for the next valid block
             idx = start_idx + 1
 
     return results
 
 def build_frGlJf_payload(album_id: str, cursor: str, share_key: str | None = None) -> str:
-    """
-    Builds a batchexecute f.req payload for a frGlJf pagination request.
-    """
     inner_arr = [album_id, cursor, None, share_key]
     inner_str = json.dumps(inner_arr, separators=(',', ':'))
     rpc = ["frGlJf", inner_str, None, "1"]
     return json.dumps([[rpc]], separators=(',', ':'))
 
+def build_wQ6iqd_payload(album_id: str, cursor: str, share_key: str | None = None) -> str:
+    """Builds the exact nested array pagination request expected by Google."""
+    inner_arr = [[album_id], cursor]
+    inner_str = json.dumps(inner_arr, separators=(',', ':'))
+    rpc = ["wQ6iqd", inner_str, None, "generic"]
+    return json.dumps([[rpc]], separators=(',', ':'))
+
 def _extract_envelopes(data: Any, results: list[tuple[str, Any]]) -> None:
-    """
-    Recursively scans the decoded JSON structure for Google's ["wrb.fr", rpc_id, payload] envelopes.
-    """
     if not isinstance(data, list):
         return
 
@@ -84,9 +77,6 @@ def _extract_envelopes(data: Any, results: list[tuple[str, Any]]) -> None:
 
 
 def build_fDcn4b_batch(media_ids: list[str], share_key: str) -> str:
-    """
-    Builds a batchexecute f.req payload for multiple fDcn4b requests.
-    """
     rpc_list = []
     
     for i, media_id in enumerate(media_ids):

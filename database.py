@@ -1,294 +1,130 @@
-from __future__ import annotations
+import sqlite3
+from sqlalchemy import create_engine, Column, String, Integer, BigInteger, text
+from sqlalchemy.orm import declarative_base, sessionmaker
 
-from datetime import datetime
-from typing import Optional, Any
+from models import Album, Media
 
-from sqlalchemy import BigInteger, DateTime, Integer, String, create_engine, select
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
-
-from config import LOCAL_DATABASE_URL, CLOUD_DATABASE_URL
-from models import Album, Media, Owner
-
-
-class Base(DeclarativeBase):
-    pass
-
+Base = declarative_base()
 
 class AlbumRecord(Base):
     __tablename__ = "albums"
-
-    id: Mapped[str] = mapped_column(String, primary_key=True)
-    title: Mapped[str] = mapped_column(String)
-    share_key: Mapped[Optional[str]] = mapped_column(String)
-    cover_url: Mapped[Optional[str]] = mapped_column(String)
-    cover_width: Mapped[Optional[int]] = mapped_column(Integer)
-    cover_height: Mapped[Optional[int]] = mapped_column(Integer)
-    owner_id: Mapped[Optional[str]] = mapped_column(String)
-    owner_name: Mapped[Optional[str]] = mapped_column(String)
-    owner_avatar_url: Mapped[Optional[str]] = mapped_column(String)
-    indexed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-
+    id = Column(String, primary_key=True)
+    title = Column(String)
+    share_key = Column(String)
 
 class MediaRecord(Base):
     __tablename__ = "media"
-
-    media_id: Mapped[str] = mapped_column(String, primary_key=True)
-    preview_url: Mapped[Optional[str]] = mapped_column(String)
-    stream_url: Mapped[Optional[str]] = mapped_column(String)
-    download_url: Mapped[Optional[str]] = mapped_column(String)
-    width: Mapped[Optional[int]] = mapped_column(Integer)
-    height: Mapped[Optional[int]] = mapped_column(Integer)
-    capture_timestamp_ms: Mapped[Optional[int]] = mapped_column(BigInteger)
-    added_timestamp_ms: Mapped[Optional[int]] = mapped_column(BigInteger)
-    album_id: Mapped[Optional[str]] = mapped_column(String)
-    owner_id: Mapped[Optional[str]] = mapped_column(String)
-    owner_name: Mapped[Optional[str]] = mapped_column(String)
-    owner_avatar_url: Mapped[Optional[str]] = mapped_column(String)
-    page_cursor: Mapped[Optional[str]] = mapped_column(String)
-    filename: Mapped[Optional[str]] = mapped_column(String)
-    file_size_bytes: Mapped[Optional[int]] = mapped_column(BigInteger)
-    indexed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-
+    media_id = Column(String, primary_key=True)
+    album_id = Column(String)
+    album_name = Column(String)
+    filename = Column(String)
+    preview_url = Column(String)
+    stream_url = Column(String)
+    download_url = Column(String)
+    width = Column(Integer)
+    height = Column(Integer)
+    file_size_bytes = Column(BigInteger)
 
 class Database:
-    def __init__(self) -> None:
-        # Initialize Local Engine
-        self.local_engine = create_engine(LOCAL_DATABASE_URL)
-        self.LocalSession = sessionmaker(self.local_engine, expire_on_commit=False)
-
-        # Initialize Cloud Engine
-        self.cloud_engine = create_engine(CLOUD_DATABASE_URL)
-        self.CloudSession = sessionmaker(self.cloud_engine, expire_on_commit=False)
+    def __init__(self, local_path: str = "sqlite:///google_photos.db"):
+        self.local_engine = create_engine(local_path)
+        self.LocalSession = sessionmaker(bind=self.local_engine)
 
     def create(self) -> None:
-        # Create tables in both databases
         Base.metadata.create_all(self.local_engine)
-        Base.metadata.create_all(self.cloud_engine)
+        self._create_views()
 
-    @staticmethod
-    def _extract_owner(record: AlbumRecord | MediaRecord) -> Optional[Owner]:
-        if not record.owner_id:
-            return None
-        return Owner(
-            id=record.owner_id,
-            name=record.owner_name or "",
-            avatar_url=record.owner_avatar_url,
-        )
-
-    @staticmethod
-    def _apply_owner(record: AlbumRecord | MediaRecord, owner: Optional[Owner]) -> None:
-        if owner:
-            record.owner_id = owner.id
-            record.owner_name = owner.name
-            record.owner_avatar_url = owner.avatar_url
-        else:
-            record.owner_id = None
-            record.owner_name = None
-            record.owner_avatar_url = None
-
-    @classmethod
-    def _to_album_model(cls, record: AlbumRecord) -> Album:
-        return Album(
-            id=record.id,
-            title=record.title,
-            share_key=record.share_key,
-            cover_url=record.cover_url,
-            cover_width=record.cover_width,
-            cover_height=record.cover_height,
-            owner=cls._extract_owner(record),
-        )
-
-    @classmethod
-    def _update_album_record(cls, record: AlbumRecord, album: Album) -> None:
-        record.title = album.title
-        record.share_key = album.share_key
-        record.cover_url = album.cover_url
-        record.cover_width = album.cover_width
-        record.cover_height = album.cover_height
-        cls._apply_owner(record, album.owner)
-
-    @classmethod
-    def _to_media_model(cls, record: MediaRecord) -> Media:
-        return Media(
-            media_id=record.media_id,
-            preview_url=record.preview_url,
-            stream_url=record.stream_url,
-            download_url=record.download_url,
-            width=record.width,
-            height=record.height,
-            capture_timestamp_ms=record.capture_timestamp_ms,
-            added_timestamp_ms=record.added_timestamp_ms,
-            album_id=record.album_id,
-            owner=cls._extract_owner(record),
-            page_cursor=record.page_cursor,
-            filename=record.filename,
-            file_size_bytes=record.file_size_bytes,
-            indexed_at=record.indexed_at,
-        )
-
-    @classmethod
-    def _update_media_record(cls, record: MediaRecord, media: Media) -> None:
-        record.preview_url = media.preview_url
-        record.stream_url = media.stream_url
-        record.download_url = media.download_url
-        record.width = media.width
-        record.height = media.height
-        record.capture_timestamp_ms = media.capture_timestamp_ms
-        record.added_timestamp_ms = media.added_timestamp_ms
-        record.album_id = media.album_id
-        record.page_cursor = media.page_cursor
-        record.filename = media.filename
-        record.file_size_bytes = media.file_size_bytes
-        cls._apply_owner(record, media.owner)
+    def _create_views(self) -> None:
+        with self.local_engine.connect() as conn:
+            conn.execute(text("DROP VIEW IF EXISTS vw_media_formatted;"))
+            conn.execute(text("DROP VIEW IF EXISTS vw_album_storage;"))
+            
+            # View 1: Formatted Media (Permanent Links only, safe resolution parsing)
+            conn.execute(text("""
+                CREATE VIEW vw_media_formatted AS
+                SELECT 
+                    COALESCE(a.title, 'Unallocated/No Album') AS "Album Title",
+                    m.filename AS "Filename",
+                    ROUND(m.file_size_bytes / 1073741824.0, 3) AS "Size (GB)",
+                    CASE 
+                        WHEN m.width IS NOT NULL AND m.height IS NOT NULL THEN m.width || 'x' || m.height
+                        ELSE ''
+                    END AS "Resolution",
+                    m.media_id AS "Media ID",
+                    'https://photos.google.com/share/' || m.album_id || '/photo/' || m.media_id || 
+                    CASE WHEN a.share_key IS NOT NULL AND a.share_key != '' THEN '?key=' || a.share_key ELSE '' END AS "Share Link"
+                FROM media m
+                LEFT JOIN albums a ON m.album_id = a.id
+                ORDER BY a.title COLLATE NOCASE, m.filename COLLATE NOCASE;
+            """))
+            
+            # View 2: Storage Summary
+            conn.execute(text("""
+                CREATE VIEW vw_album_storage AS
+                SELECT 
+                    COALESCE(a.title, 'Unallocated/No Album') AS "Album Name",
+                    COUNT(m.media_id) AS "Total Files",
+                    ROUND(SUM(m.file_size_bytes) / 1048576.0, 2) AS "Size (MB)",
+                    ROUND(SUM(m.file_size_bytes) / 1073741824.0, 2) AS "Size (GB)",
+                    ROUND(SUM(m.file_size_bytes) / 1099511627776.0, 2) AS "Size (TB)"
+                FROM media m
+                LEFT JOIN albums a ON m.album_id = a.id
+                GROUP BY m.album_id
+                ORDER BY SUM(m.file_size_bytes) DESC;
+            """))
+            conn.commit()
 
     def save_album(self, album: Album) -> None:
-        # Write to Local
-        with self.LocalSession() as db:
-            record = db.get(AlbumRecord, album.id)
-            if record is None:
+        with self.LocalSession() as session:
+            record = session.query(AlbumRecord).filter_by(id=album.id).first()
+            if not record:
                 record = AlbumRecord(id=album.id)
-                db.add(record)
-            self._update_album_record(record, album)
-            db.commit()
-
-        # Write to Cloud
-        with self.CloudSession() as db:
-            record = db.get(AlbumRecord, album.id)
-            if record is None:
-                record = AlbumRecord(id=album.id)
-                db.add(record)
-            self._update_album_record(record, album)
-            db.commit()
-
-    def get_album(self, album_id: str) -> Optional[Album]:
-        # Read from Local only
-        with self.LocalSession() as db:
-            record = db.get(AlbumRecord, album_id)
-            if record is None:
-                return None
-            return self._to_album_model(record)
-
-    def all_albums(self) -> list[Album]:
-        # Read from Local only
-        with self.LocalSession() as db:
-            records = db.scalars(select(AlbumRecord)).all()
-            return [self._to_album_model(r) for r in records]
-
-    def save(self, media: Media) -> None:
-        # Write to Local
-        with self.LocalSession() as db:
-            record = db.get(MediaRecord, media.media_id)
-            if record is None:
-                record = MediaRecord(media_id=media.media_id)
-                db.add(record)
-            self._update_media_record(record, media)
-            db.commit()
-
-        # Write to Cloud
-        with self.CloudSession() as db:
-            record = db.get(MediaRecord, media.media_id)
-            if record is None:
-                record = MediaRecord(media_id=media.media_id)
-                db.add(record)
-            self._update_media_record(record, media)
-            db.commit()
+                session.add(record)
+            record.title = album.title
+            record.share_key = getattr(album, "share_key", None)
+            session.commit()
 
     def save_many(self, media_list: list[Media]) -> None:
-        if not media_list:
-            return
-
-        media_ids = [m.media_id for m in media_list]
-
-        # Write to Local
-        with self.LocalSession() as db:
-            stmt = select(MediaRecord).where(MediaRecord.media_id.in_(media_ids))
-            existing_records = {r.media_id: r for r in db.scalars(stmt).all()}
-
+        with self.LocalSession() as session:
             for media in media_list:
-                record = existing_records.get(media.media_id)
-                if record is None:
+                record = session.query(MediaRecord).filter_by(media_id=media.media_id).first()
+                if not record:
                     record = MediaRecord(media_id=media.media_id)
-                    db.add(record)
-                self._update_media_record(record, media)
-            db.commit()
-
-        # Write to Cloud
-        with self.CloudSession() as db:
-            stmt = select(MediaRecord).where(MediaRecord.media_id.in_(media_ids))
-            existing_records = {r.media_id: r for r in db.scalars(stmt).all()}
-
-            for media in media_list:
-                record = existing_records.get(media.media_id)
-                if record is None:
-                    record = MediaRecord(media_id=media.media_id)
-                    db.add(record)
-                self._update_media_record(record, media)
-            db.commit()
+                    session.add(record)
+                
+                record.album_id = media.album_id
+                record.album_name = getattr(media, "album_name", None)
+                record.filename = media.filename
+                record.preview_url = getattr(media, "preview_url", None)
+                record.stream_url = getattr(media, "stream_url", None)
+                record.download_url = getattr(media, "download_url", None)
+                record.width = getattr(media, "width", None)
+                record.height = getattr(media, "height", None)
+                record.file_size_bytes = getattr(media, "file_size_bytes", None)
             
-    def update_metadata(self, media_id: str, metadata: dict[str, Any]) -> None:
-        # Write to Local
-        with self.LocalSession() as db:
-            record = db.get(MediaRecord, media_id)
-            if record:
-                if "filename" in metadata:
-                    record.filename = metadata["filename"]
-                if "file_size_bytes" in metadata:
-                    record.file_size_bytes = metadata["file_size_bytes"]
-                db.commit()
+            session.commit()
 
-        # Write to Cloud
-        with self.CloudSession() as db:
-            record = db.get(MediaRecord, media_id)
-            if record:
-                if "filename" in metadata:
-                    record.filename = metadata["filename"]
-                if "file_size_bytes" in metadata:
-                    record.file_size_bytes = metadata["file_size_bytes"]
-                db.commit()
+    def update_metadata_batch(self, media_list: list) -> None:
+        with self.LocalSession() as session:
+            for item in media_list:
+                media_id = item.get("media_id") if isinstance(item, dict) else getattr(item, "media_id", None)
+                if not media_id:
+                    continue
 
-    def get(self, media_id: str) -> Optional[Media]:
-        # Read from Local only
-        with self.LocalSession() as db:
-            record = db.get(MediaRecord, media_id)
-            if record is None:
-                return None
-            return self._to_media_model(record)
-
-    def all(self) -> list[Media]:
-        # Read from Local only
-        with self.LocalSession() as db:
-            records = db.scalars(select(MediaRecord)).all()
-            return [self._to_media_model(r) for r in records]
-
-    def update_metadata_batch(self, updates: list[dict[str, Any]]) -> None:
-        if not updates:
-            return
-            
-        update_map = {u["media_id"]: u for u in updates}
-        media_ids = list(update_map.keys())
-
-        # Write to Local
-        with self.LocalSession() as db:
-            stmt = select(MediaRecord).where(MediaRecord.media_id.in_(media_ids))
-            records = db.scalars(stmt).all()
-            for record in records:
-                meta = update_map.get(record.media_id)
-                if meta:
-                    if "filename" in meta:
-                        record.filename = meta["filename"]
-                    if "file_size_bytes" in meta:
-                        record.file_size_bytes = meta["file_size_bytes"]
-            db.commit()
-
-        # Write to Cloud
-        with self.CloudSession() as db:
-            stmt = select(MediaRecord).where(MediaRecord.media_id.in_(media_ids))
-            records = db.scalars(stmt).all()
-            for record in records:
-                meta = update_map.get(record.media_id)
-                if meta:
-                    if "filename" in meta:
-                        record.filename = meta["filename"]
-                    if "file_size_bytes" in meta:
-                        record.file_size_bytes = meta["file_size_bytes"]
-            db.commit()
+                record = session.query(MediaRecord).filter_by(media_id=media_id).first()
+                if record:
+                    if isinstance(item, dict):
+                        record.filename = item.get("filename") or record.filename
+                        record.file_size_bytes = item.get("file_size_bytes") or record.file_size_bytes
+                        record.width = item.get("width") or record.width
+                        record.height = item.get("height") or record.height
+                        record.stream_url = item.get("stream_url") or record.stream_url
+                        record.download_url = item.get("download_url") or record.download_url
+                    else:
+                        record.filename = getattr(item, "filename", None) or record.filename
+                        record.file_size_bytes = getattr(item, "file_size_bytes", None) or record.file_size_bytes
+                        record.width = getattr(item, "width", None) or record.width
+                        record.height = getattr(item, "height", None) or record.height
+                        record.stream_url = getattr(item, "stream_url", None) or record.stream_url
+                        record.download_url = getattr(item, "download_url", None) or record.download_url
+            session.commit()
