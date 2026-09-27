@@ -29,6 +29,7 @@ class Media:
     preview_url: Optional[str] = None
     stream_url: Optional[str] = None
     download_url: Optional[str] = None
+    public_url: str | None = None
     width: Optional[int] = None
     height: Optional[int] = None
     capture_timestamp_ms: Optional[int] = None

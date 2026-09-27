@@ -138,6 +138,12 @@ class GooglePhotosIndexer:
 
             for m in media:
                 m.album_name = album.title
+                
+                # Construct the permanent, publicly accessible web UI link
+                if album.share_key:
+                    m.public_url = f"https://photos.google.com/share/{album.id}/photo/{m.media_id}?key={album.share_key}"
+                else:
+                    m.public_url = f"https://photos.google.com/album/{album.id}/photo/{m.media_id}"
 
             self.db.save_album(album)
             self.db.save_many(media)
